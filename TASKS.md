@@ -29,44 +29,50 @@
   - Support local IP detection
   - Achieved 100% coverage for retry, 82% for network
 
-- [ ] **Task 5: Mock Device System** 🔄 IN PROGRESS
+- [x] **Task 5: Mock Device System** ✅
   - Implement MockDevice dataclass
   - Create MockDeviceGenerator for testing
   - Support multiple device types (camera, sensor, gate, switch)
   - Generate random MAC addresses and IPs
+  - Commit: d979b69
 
-- [ ] **Task 6: Network Scanner** ⏳
+- [x] **Task 6: Network Scanner** ✅
   - Implement NetworkScanner with ping and port scanning
   - Support subnet scanning with threading
   - Add MAC address retrieval (ARP)
   - Port scanning for device identification
+  - Commit: fdd34f5
 
-- [ ] **Task 7: Device Identifier** ⏳
+- [x] **Task 7: Device Identifier** ✅
   - Implement DeviceIdentifier for type detection
   - Port-based identification signatures
   - Manufacturer-based identification
   - Confidence scoring system
+  - Commit: 9be6a12
 
-- [ ] **Task 8: CLI Scanner Tool** ⏳
+- [x] **Task 8: CLI Scanner Tool** ✅
   - Implement homeauto-scan CLI command
   - Support both mock and real device scanning
   - ASCII table output formatting
   - Integration with scanner, identifier, and repository
+  - Commit: 392100c
 
 ## Phase 2: Device Adapters
 
-- [ ] **Task 9: Base Device Adapter** ⏳
+- [x] **Task 9: Base Device Adapter** ✅
   - Implement BaseDevice abstract class
   - Define DeviceCapability enum
   - Abstract methods for get_info, get_status, test_connection
   - Optional config methods
+  - Commit: 5c0454e
 
-- [ ] **Task 10: Camera Device Adapter** ⏳
+- [x] **Task 10: Camera Device Adapter** ✅
   - Implement CameraDevice adapter
   - Support ONVIF/HTTP protocol
   - Retry logic for connection attempts
   - Stream URL generation
   - Status and info retrieval
+  - Commit: 555f94b
 
 ---
 
