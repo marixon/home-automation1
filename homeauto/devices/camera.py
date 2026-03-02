@@ -20,11 +20,14 @@ class CameraDevice(BaseDevice):
                 f"{self.base_url}/",
                 auth=(
                     self.credentials.get("username"),
-                    self.credentials.get("password")
+                    self.credentials.get("password"),
                 ),
-                timeout=self.timeout
+                timeout=self.timeout,
             )
-            return response.status_code in [200, 401]  # 401 means auth required but reachable
+            return response.status_code in [
+                200,
+                401,
+            ]  # 401 means auth required but reachable
         except Exception:
             return False
 
@@ -37,9 +40,9 @@ class CameraDevice(BaseDevice):
                 f"{self.base_url}/onvif/device_service",
                 auth=(
                     self.credentials.get("username"),
-                    self.credentials.get("password")
+                    self.credentials.get("password"),
                 ),
-                timeout=self.timeout
+                timeout=self.timeout,
             )
 
             if response.status_code == 200:
@@ -69,7 +72,7 @@ class CameraDevice(BaseDevice):
         return {
             "online": online,
             "streaming": online,  # Assume streaming if online
-            "recording": False,   # Would need specific API call
+            "recording": False,  # Would need specific API call
         }
 
     def get_capabilities(self) -> List[DeviceCapability]:

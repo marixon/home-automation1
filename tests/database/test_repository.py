@@ -30,12 +30,20 @@ def test_save_and_get_device(repo):
 
 def test_get_all_devices(repo):
     device1 = Device(
-        id="cam-001", device_type="camera", ip_address="192.168.1.100",
-        mac_address="AA:BB:CC:DD:EE:FF", name="Camera 1", status=DeviceStatus.ONLINE
+        id="cam-001",
+        device_type="camera",
+        ip_address="192.168.1.100",
+        mac_address="AA:BB:CC:DD:EE:FF",
+        name="Camera 1",
+        status=DeviceStatus.ONLINE,
     )
     device2 = Device(
-        id="sensor-001", device_type="sensor", ip_address="192.168.1.101",
-        mac_address="11:22:33:44:55:66", name="Sensor 1", status=DeviceStatus.ONLINE
+        id="sensor-001",
+        device_type="sensor",
+        ip_address="192.168.1.101",
+        mac_address="11:22:33:44:55:66",
+        name="Sensor 1",
+        status=DeviceStatus.ONLINE,
     )
 
     repo.save(device1)
@@ -47,12 +55,20 @@ def test_get_all_devices(repo):
 
 def test_get_by_type(repo):
     camera = Device(
-        id="cam-001", device_type="camera", ip_address="192.168.1.100",
-        mac_address="AA:BB:CC:DD:EE:FF", name="Camera 1", status=DeviceStatus.ONLINE
+        id="cam-001",
+        device_type="camera",
+        ip_address="192.168.1.100",
+        mac_address="AA:BB:CC:DD:EE:FF",
+        name="Camera 1",
+        status=DeviceStatus.ONLINE,
     )
     sensor = Device(
-        id="sensor-001", device_type="sensor", ip_address="192.168.1.101",
-        mac_address="11:22:33:44:55:66", name="Sensor 1", status=DeviceStatus.ONLINE
+        id="sensor-001",
+        device_type="sensor",
+        ip_address="192.168.1.101",
+        mac_address="11:22:33:44:55:66",
+        name="Sensor 1",
+        status=DeviceStatus.ONLINE,
     )
 
     repo.save(camera)

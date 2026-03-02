@@ -15,7 +15,7 @@ def is_valid_ip(ip: str) -> bool:
 def is_valid_mac(mac: str) -> bool:
     """Check if string is a valid MAC address"""
     # Remove common separators and check format
-    mac_clean = mac.replace(':', '').replace('-', '').upper()
+    mac_clean = mac.replace(":", "").replace("-", "").upper()
     if len(mac_clean) != 12:
         return False
 
@@ -30,7 +30,10 @@ def parse_subnet(subnet: str) -> List[str]:
     """Parse subnet and return list of IP addresses"""
     try:
         network = ipaddress.ip_network(subnet, strict=False)
-        return [str(ip) for ip in network.hosts()] + [str(network.network_address), str(network.broadcast_address)]
+        return [str(ip) for ip in network.hosts()] + [
+            str(network.network_address),
+            str(network.broadcast_address),
+        ]
     except ValueError:
         return []
 

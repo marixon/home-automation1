@@ -32,25 +32,28 @@ class DeviceRepository:
 
     def save(self, device: Device):
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO devices
                 (id, device_type, ip_address, mac_address, name, status,
                  manufacturer, model, confidence_score, last_seen, config, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                device.id,
-                device.device_type,
-                device.ip_address,
-                device.mac_address,
-                device.name,
-                device.status.value,
-                device.manufacturer,
-                device.model,
-                device.confidence_score,
-                device.last_seen.isoformat(),
-                json.dumps(device.config),
-                json.dumps(device.metadata),
-            ))
+            """,
+                (
+                    device.id,
+                    device.device_type,
+                    device.ip_address,
+                    device.mac_address,
+                    device.name,
+                    device.status.value,
+                    device.manufacturer,
+                    device.model,
+                    device.confidence_score,
+                    device.last_seen.isoformat(),
+                    json.dumps(device.config),
+                    json.dumps(device.metadata),
+                ),
+            )
             conn.commit()
 
     def get(self, device_id: str) -> Optional[Device]:
@@ -73,7 +76,7 @@ class DeviceRepository:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM devices WHERE device_type = ? ORDER BY last_seen DESC",
-                (device_type,)
+                (device_type,),
             )
             return [self._row_to_device(row) for row in cursor.fetchall()]
 

@@ -21,9 +21,7 @@ def test_mock_device_types():
 
 def test_mock_device_response():
     device = MockDevice(
-        device_type="camera",
-        ip="192.168.1.100",
-        mac="AA:BB:CC:DD:EE:FF"
+        device_type="camera", ip="192.168.1.100", mac="AA:BB:CC:DD:EE:FF"
     )
 
     # is_online() returns random bool (90% True), so just check it's callable

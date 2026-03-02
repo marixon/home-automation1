@@ -27,9 +27,9 @@ def test_format_device_table():
     assert "Front Camera" in table
 
 
-@patch('homeauto.cli.scan.NetworkScanner')
-@patch('homeauto.cli.scan.DeviceIdentifier')
-@patch('homeauto.cli.scan.DeviceRepository')
+@patch("homeauto.cli.scan.NetworkScanner")
+@patch("homeauto.cli.scan.DeviceIdentifier")
+@patch("homeauto.cli.scan.DeviceRepository")
 def test_scan_command(mock_repo, mock_identifier, mock_scanner):
     # Mock scanner to return active hosts
     mock_scanner_instance = MagicMock()

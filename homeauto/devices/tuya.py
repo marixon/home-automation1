@@ -21,11 +21,11 @@ class TuyaDevice(BaseDevice):
     def _generate_signature(self, payload: str, timestamp: str) -> str:
         """Generate HMAC signature for Tuya API"""
         message = f"{self.api_key}{timestamp}{payload}"
-        signature = hmac.new(
-            self.secret.encode(),
-            message.encode(),
-            hashlib.sha256
-        ).hexdigest().upper()
+        signature = (
+            hmac.new(self.secret.encode(), message.encode(), hashlib.sha256)
+            .hexdigest()
+            .upper()
+        )
         return signature
 
     @retry_with_backoff(max_attempts=3, base_delay=1.0)
@@ -40,14 +40,14 @@ class TuyaDevice(BaseDevice):
                 "client_id": self.api_key,
                 "sign": signature,
                 "t": timestamp,
-                "sign_method": "HMAC-SHA256"
+                "sign_method": "HMAC-SHA256",
             }
 
             response = requests.post(
                 f"{self.base_url}/v1.0/devices/{self.device_id}/commands",
                 headers=headers,
                 json={"commands": []},
-                timeout=self.timeout
+                timeout=self.timeout,
             )
             return response.status_code == 200
         except Exception:
@@ -75,13 +75,13 @@ class TuyaDevice(BaseDevice):
                 "client_id": self.api_key,
                 "sign": signature,
                 "t": timestamp,
-                "sign_method": "HMAC-SHA256"
+                "sign_method": "HMAC-SHA256",
             }
 
             response = requests.get(
                 f"{self.base_url}/v1.0/devices/{self.device_id}/status",
                 headers=headers,
-                timeout=self.timeout
+                timeout=self.timeout,
             )
 
             if response.status_code == 200:
@@ -103,14 +103,16 @@ class TuyaDevice(BaseDevice):
                 "client_id": self.api_key,
                 "sign": signature,
                 "t": timestamp,
-                "sign_method": "HMAC-SHA256"
+                "sign_method": "HMAC-SHA256",
             }
 
             response = requests.post(
                 f"{self.base_url}/v1.0/devices/{self.device_id}/commands",
                 headers=headers,
-                json={"commands": [{"code": k, "value": v} for k, v in commands.items()]},
-                timeout=self.timeout
+                json={
+                    "commands": [{"code": k, "value": v} for k, v in commands.items()]
+                },
+                timeout=self.timeout,
             )
 
             return response.status_code == 200 and response.json().get("success", False)

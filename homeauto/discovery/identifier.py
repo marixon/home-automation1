@@ -50,11 +50,7 @@ class DeviceIdentifier:
         return confidence
 
     def identify(
-        self,
-        ip: str,
-        mac: str,
-        open_ports: List[int],
-        manufacturer: str = None
+        self, ip: str, mac: str, open_ports: List[int], manufacturer: str = None
     ) -> Tuple[str, float]:
         """
         Identify device type and calculate confidence score

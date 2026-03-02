@@ -3,21 +3,20 @@ from unittest.mock import patch, MagicMock
 from homeauto.devices.camera import CameraDevice
 
 
-@patch('homeauto.devices.camera.requests')
+@patch("homeauto.devices.camera.requests")
 def test_camera_test_connection(mock_requests):
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_requests.get.return_value = mock_response
 
     camera = CameraDevice(
-        ip="192.168.1.100",
-        credentials={"username": "admin", "password": "pass"}
+        ip="192.168.1.100", credentials={"username": "admin", "password": "pass"}
     )
 
     assert camera.test_connection() is True
 
 
-@patch('homeauto.devices.camera.requests')
+@patch("homeauto.devices.camera.requests")
 def test_camera_get_info(mock_requests):
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -25,8 +24,7 @@ def test_camera_get_info(mock_requests):
     mock_requests.get.return_value = mock_response
 
     camera = CameraDevice(
-        ip="192.168.1.100",
-        credentials={"username": "admin", "password": "pass"}
+        ip="192.168.1.100", credentials={"username": "admin", "password": "pass"}
     )
 
     info = camera.get_info()
@@ -34,15 +32,14 @@ def test_camera_get_info(mock_requests):
     assert info["type"] == "camera"
 
 
-@patch('homeauto.devices.camera.requests')
+@patch("homeauto.devices.camera.requests")
 def test_camera_get_status(mock_requests):
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_requests.get.return_value = mock_response
 
     camera = CameraDevice(
-        ip="192.168.1.100",
-        credentials={"username": "admin", "password": "pass"}
+        ip="192.168.1.100", credentials={"username": "admin", "password": "pass"}
     )
 
     status = camera.get_status()

@@ -8,7 +8,7 @@ def test_scanner_initialization():
     assert scanner.subnet == "192.168.1.0/24"
 
 
-@patch('homeauto.discovery.scanner.os.system')
+@patch("homeauto.discovery.scanner.os.system")
 def test_ping_host(mock_system):
     scanner = NetworkScanner()
 
@@ -21,7 +21,7 @@ def test_ping_host(mock_system):
     assert scanner.ping_host("192.168.1.1") is False
 
 
-@patch('homeauto.discovery.scanner.NetworkScanner.ping_host')
+@patch("homeauto.discovery.scanner.NetworkScanner.ping_host")
 def test_scan_subnet(mock_ping):
     # Mock ping results: first 3 IPs respond
     mock_ping.side_effect = [True, True, True] + [False] * 250

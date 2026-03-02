@@ -7,7 +7,7 @@ def retry_with_backoff(
     max_attempts: int = 3,
     base_delay: float = 1.0,
     backoff_factor: float = 2.0,
-    exceptions: Tuple[Type[Exception], ...] = (Exception,)
+    exceptions: Tuple[Type[Exception], ...] = (Exception,),
 ):
     """
     Decorator for retrying a function with exponential backoff.
@@ -18,6 +18,7 @@ def retry_with_backoff(
         backoff_factor: Multiplier for delay after each retry
         exceptions: Tuple of exception types to catch and retry
     """
+
     def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -37,4 +38,5 @@ def retry_with_backoff(
             raise last_exception
 
         return wrapper
+
     return decorator

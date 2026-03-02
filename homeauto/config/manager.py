@@ -12,12 +12,12 @@ class ConfigManager:
         if not self.config_path.exists():
             return {}
 
-        with open(self.config_path, 'r') as f:
+        with open(self.config_path, "r") as f:
             return yaml.safe_load(f) or {}
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get config value using dot notation (e.g., 'credentials.hikconnect.username')"""
-        keys = key.split('.')
+        keys = key.split(".")
         value = self.config
 
         for k in keys:
@@ -38,5 +38,5 @@ class ConfigManager:
 
     def save(self, config: Dict):
         """Save configuration to file"""
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, "w") as f:
             yaml.dump(config, f, default_flow_style=False)

@@ -15,16 +15,16 @@ class NetworkScanner:
         """Get default subnet based on local IP"""
         local_ip = get_local_ip()
         # Assume /24 subnet
-        parts = local_ip.split('.')
+        parts = local_ip.split(".")
         return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
 
     def ping_host(self, ip: str) -> bool:
         """Ping a host to check if it's alive"""
-        param = '-n' if platform.system().lower() == 'windows' else '-c'
+        param = "-n" if platform.system().lower() == "windows" else "-c"
         command = f"ping {param} 1 -w {self.timeout * 1000} {ip}"
 
         # Redirect output to null
-        null_device = 'NUL' if platform.system().lower() == 'windows' else '/dev/null'
+        null_device = "NUL" if platform.system().lower() == "windows" else "/dev/null"
         command = f"{command} > {null_device} 2>&1"
 
         return os.system(command) == 0

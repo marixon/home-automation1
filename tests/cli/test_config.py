@@ -3,8 +3,8 @@ from unittest.mock import patch, MagicMock
 from homeauto.cli.config import ConfigCommand
 
 
-@patch('homeauto.cli.config.DeviceRepository')
-@patch('homeauto.cli.config.ConfigManager')
+@patch("homeauto.cli.config.DeviceRepository")
+@patch("homeauto.cli.config.ConfigManager")
 def test_list_devices(mock_config, mock_repo):
     # Mock repository with devices
     mock_repo_instance = MagicMock()
@@ -22,7 +22,7 @@ def test_list_devices(mock_config, mock_repo):
     assert result["count"] == 1
 
 
-@patch('homeauto.cli.config.ConfigManager')
+@patch("homeauto.cli.config.ConfigManager")
 def test_set_credentials(mock_config):
     mock_config_instance = MagicMock()
     mock_config_instance.config = {}
@@ -35,12 +35,12 @@ def test_set_credentials(mock_config):
     assert mock_config_instance.save.called
 
 
-@patch('homeauto.cli.config.ConfigManager')
+@patch("homeauto.cli.config.ConfigManager")
 def test_get_credentials(mock_config):
     mock_config_instance = MagicMock()
     mock_config_instance.get_credentials.return_value = {
         "username": "admin",
-        "password": "test"
+        "password": "test",
     }
     mock_config.return_value = mock_config_instance
 
