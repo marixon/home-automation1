@@ -48,6 +48,9 @@ htmlcov/
 config.yaml
 config.yml
 *.local.yaml
+.env
+.env.*
+!.env.example
 
 # Logs
 *.log
