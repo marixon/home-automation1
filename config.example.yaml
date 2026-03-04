@@ -1,0 +1,33 @@
+# Home Automation Configuration Example
+# Copy this to config.yaml and fill in your credentials
+
+credentials:
+  hikconnect:
+    username: your_username
+    password: your_password
+  tuya:
+    api_key: your_api_key
+    secret: your_secret
+  camera:
+    username: admin
+    password: camera_password
+
+settings:
+  # Network scanning interval in seconds
+  scan_interval: 300
+
+  # Number of retry attempts for failed connections
+  retry_attempts: 3
+
+  # Connection timeout in seconds
+  timeout: 10
+
+  # Network subnet to scan (e.g., 192.168.1.0/24)
+  subnet: 192.168.1.0/24
+
+testing:
+  # Use mock devices for testing
+  use_mock_devices: false
+
+  # Number of mock devices to generate
+  mock_device_count: 5

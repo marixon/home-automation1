@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home Automation Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50" x-data="dashboard()" x-init="init()">
+    <!-- Header -->
+    <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-gray-900">Home Automation Dashboard</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center">
+                        <span class="mr-2 text-sm text-gray-600">Status:</span>
+                        <span class="flex h-3 w-3 relative">
+                            <span :class="connected ? 'bg-green-400' : 'bg-red-400'"
+                                  class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"></span>
+                            <span :class="connected ? 'bg-green-500' : 'bg-red-500'"
+                                  class="relative inline-flex rounded-full h-3 w-3"></span>
+                        </span>
+                        <span x-text="connected ? 'Connected' : 'Disconnected'"
+                              class="ml-2 text-sm font-medium"
+                              :class="connected ? 'text-green-600' : 'text-red-600'"></span>
+                    </div>
+                    <button @click="refreshDevices()"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                        Refresh Devices
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-gray-500 text-sm font-medium">Total Devices</div>
+                <div class="text-3xl font-bold mt-2" x-text="devices.length"></div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-gray-500 text-sm font-medium">Online</div>
+                <div class="text-3xl font-bold text-green-600 mt-2"
+                     x-text="devices.filter(d => d.status === 'online').length"></div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-gray-500 text-sm font-medium">Cameras</div>
+                <div class="text-3xl font-bold mt-2"
+                     x-text="devices.filter(d => d.device_type === 'camera').length"></div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-gray-500 text-sm font-medium">Sensors</div>
+                <div class="text-3xl font-bold mt-2"
+                     x-text="devices.filter(d => d.device_type === 'sensor').length"></div>
+            </div>
+        </div>
+
+        <!-- Filter Tabs -->
+        <div class="mb-6">
+            <div class="border-b border-gray-200">
+                <nav class="-mb-px flex space-x-8">
+                    <template x-for="type in ['all', 'camera', 'sensor', 'gate', 'switch']" :key="type">
+                        <button @click="filterType = type"
+                                :class="filterType === type ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm capitalize">
+                            <span x-text="type"></span>
+                            <span class="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs"
+                                  x-text="type === 'all' ? devices.length : devices.filter(d => d.device_type === type).length"></span>
+                        </button>
+                    </template>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div x-show="loading" class="text-center py-12">
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p class="mt-4 text-gray-600">Loading devices...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div x-show="!loading && filteredDevices.length === 0" class="text-center py-12 bg-white rounded-lg shadow">
+            <div class="text-6xl mb-4">DEV</div>
+            <h3 class="text-xl font-medium text-gray-900 mb-2">No devices found</h3>
+            <p class="text-gray-500 mb-4">Run the scanner to discover devices on your network</p>
+            <pre class="bg-gray-50 p-4 rounded text-left inline-block text-sm">homeauto-scan</pre>
+        </div>
+
+        <!-- Devices Grid -->
+        <div x-show="!loading && filteredDevices.length > 0"
+             class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+             x-cloak>
+            <template x-for="device in filteredDevices" :key="device.id">
+                <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6">
+                    <!-- Device Header -->
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex-1">
+                            <div class="flex items-center">
+                                <span class="text-2xl mr-2" x-text="getDeviceIcon(device.device_type)"></span>
+                                <h3 class="text-lg font-semibold text-gray-900" x-text="device.name"></h3>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-1" x-text="device.device_type"></p>
+                        </div>
+                        <span :class="device.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                              class="px-2 py-1 text-xs font-medium rounded-full capitalize"
+                              x-text="device.status"></span>
+                    </div>
+
+                    <!-- Device Info -->
+                    <div class="space-y-2 mb-4">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-500">IP Address:</span>
+                            <span class="font-mono text-gray-900" x-text="device.ip_address"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="device.manufacturer">
+                            <span class="text-gray-500">Manufacturer:</span>
+                            <span class="text-gray-900" x-text="device.manufacturer || 'Unknown'"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="device.model">
+                            <span class="text-gray-500">Model:</span>
+                            <span class="text-gray-900" x-text="device.model || 'Unknown'"></span>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex space-x-2">
+                        <template x-if="device.device_type === 'gate'">
+                            <div class="flex space-x-2 w-full">
+                                <button @click="openGate(device)"
+                                        class="flex-1 bg-green-50 text-green-600 px-4 py-2 rounded hover:bg-green-100 transition text-sm font-medium">
+                                    Open Gate
+                                </button>
+                                <button @click="closeGate(device)"
+                                        class="flex-1 bg-red-50 text-red-600 px-4 py-2 rounded hover:bg-red-100 transition text-sm font-medium">
+                                    Close Gate
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="device.device_type !== 'gate'">
+                            <div class="flex space-x-2 w-full">
+                                <button @click="viewDevice(device)"
+                                        class="flex-1 bg-blue-50 text-blue-600 px-4 py-2 rounded hover:bg-blue-100 transition text-sm font-medium">
+                                    View Details
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <script>
+        function dashboard() {
+            return {
+                devices: [],
+                filterType: 'all',
+                loading: true,
+                showModal: false,
+                selectedDevice: null,
+                connected: true,
+
+                get filteredDevices() {
+                    if (this.filterType === 'all') {
+                        return this.devices;
+                    }
+                    return this.devices.filter(d => d.device_type === this.filterType);
+                },
+
+                async init() {
+                    await this.loadDevices();
+                    // Refresh every 30 seconds
+                    setInterval(() => this.loadDevices(), 30000);
+                },
+
+                async loadDevices() {
+                    try {
+                        const response = await fetch('/api/devices');
+                        this.devices = await response.json();
+                        this.connected = true;
+                    } catch (error) {
+                        console.error('Failed to load devices:', error);
+                        this.connected = false;
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async refreshDevices() {
+                    this.loading = true;
+                    await this.loadDevices();
+                },
+
+                getDeviceIcon(type) {
+                    const icons = {
+                        camera: 'CAM',
+                        sensor: 'SEN',
+                        gate: 'GATE',
+                        switch: 'SW',
+                        tuya: 'TUYA'
+                    };
+                    return icons[type] || 'DEV';
+                },
+
+                viewDevice(device) {
+                    this.showDeviceModal(device);
+                },
+
+                async openGate(device) {
+                    if (!confirm('Are you sure you want to open ' + device.name + '?')) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/api/gates/' + device.id + '/open', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            alert('SUCCESS: ' + result.message);
+                            // Refresh device status
+                            await this.refreshDeviceStatus(device);
+                        } else {
+                            alert('FAILED: ' + result.message);
+                        }
+                    } catch (error) {
+                        console.error('Error opening gate:', error);
+                        alert('ERROR: Error opening gate. Please check console for details.');
+                    }
+                },
+
+                async closeGate(device) {
+                    if (!confirm('Are you sure you want to close ' + device.name + '?')) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/api/gates/' + device.id + '/close', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            alert('SUCCESS: ' + result.message);
+                            // Refresh device status
+                            await this.refreshDeviceStatus(device);
+                        } else {
+                            alert('FAILED: ' + result.message);
+                        }
+                    } catch (error) {
+                        console.error('Error closing gate:', error);
+                        alert('ERROR: Error closing gate. Please check console for details.');
+                    }
+                },
+
+                async refreshDeviceStatus(device) {
+                    try {
+                        const response = await fetch('/api/gates/' + device.id + '/status');
+                        const status = await response.json();
+                        console.log('Gate status updated:', status);
+                        // You could update the device in the devices array here
+                    } catch (error) {
+                        console.error('Error refreshing device status:', error);
+                    }
+                },
+
+                showDeviceModal(device) {
+                    this.selectedDevice = device;
+                    this.showModal = true;
+                }
+            }
+        }
+    </script>
+</body>
+</html>
