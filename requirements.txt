@@ -1,3 +1,4 @@
+# Core dependencies for Home Automation System
 fastapi>=0.100.0
 uvicorn>=0.23.0
 sqlalchemy>=2.0.0
@@ -7,3 +8,26 @@ python-multipart>=0.0.6
 websockets>=11.0
 zeroconf>=0.120.0
 scapy>=2.5.0
+psutil>=5.9.0
+
+# Camera Services Dependencies
+opencv-python>=4.8.0  # Computer vision and image processing
+Pillow>=10.0.0        # Image handling and processing
+numpy>=1.24.0         # Numerical computing (required by OpenCV)
+paramiko>=3.3.0       # SFTP support
+croniter>=1.3.0       # Cron schedule parsing
+schedule>=1.2.0       # Python job scheduling
+
+# Google Drive API dependencies (optional - only needed if using Google Drive storage)
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.1.0
+google-auth-oauthlib>=1.0.0
+oauth2client>=4.1.3
+
+# Object recognition dependencies (optional - only needed if using object recognition)
+ultralytics>=8.0.0    # YOLO object detection
+
+# Additional utilities
+pyftpdlib>=1.5.7      # FTP server/client utilities (for testing)
+python-magic>=0.4.27  # File type detection
+watchdog>=3.0.0       # File system events monitoring

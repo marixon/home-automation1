@@ -141,3 +141,21 @@ def log_device_identification(logger: logging.Logger, ip: str, mac: str,
                             device_type: str, confidence: float):
     """Log device identification details"""
     logger.debug(f"[IDENTIFY] {ip} ({mac}) -> {device_type} (confidence: {confidence:.2f})")
+def get_device_logger(device_type: str, device_ip: str) -> logging.Logger:
+    """
+    Get a logger for a specific device
+    
+    Args:
+        device_type: Type of device (e.g., 'tuya', 'gate', 'camera')
+        device_ip: IP address of the device
+    
+    Returns:
+        Logger instance configured for the device
+    """
+    logger = logging.getLogger(f"homeauto.devices.{device_type}.{device_ip}")
+    
+    # If logger doesn't have handlers, propagate to parent
+    if not logger.handlers:
+        logger.propagate = True
+    
+    return logger

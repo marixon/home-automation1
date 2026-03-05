@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import List, Dict, Any, Optional
 from homeauto.database.repository import DeviceRepository
+from datetime import datetime
 from homeauto.database.models import Device
 from homeauto.config.manager import ConfigManager
 from homeauto.devices.gate import HikGateDevice
@@ -11,6 +12,13 @@ from homeauto.devices.tuya import TuyaDevice
 import os
 import asyncio
 import json
+# Import camera services API
+try:
+    from .camera_services_api import router as camera_services_router
+    CAMERA_SERVICES_AVAILABLE = True
+except ImportError as e:
+    print(f"Camera services API not available: {e}")
+    CAMERA_SERVICES_AVAILABLE = False
 
 app = FastAPI(title="Home Automation API", version="0.1.0")
 
@@ -22,6 +30,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Include camera services API if available
+if CAMERA_SERVICES_AVAILABLE:
+    app.include_router(camera_services_router)
+    print("Camera services API enabled")
+else:
+    print("Camera services API disabled - modules not available")
 
 # Initialize repository and config
 repo = DeviceRepository()
@@ -96,7 +110,6 @@ async def root():
     </html>
     """)
 
-@app.get("/api/devices", response_model=List[Dict[str, Any]])
 
 @app.get("/api/devices", response_model=List[Dict[str, Any]])
 async def get_devices():
@@ -293,10 +306,169 @@ async def get_gate_status(device_id: str):
         )
 
 
+@app.get("/api/cameras/{device_id}/status")
+async def get_camera_status(device_id: str):
+    """Get detailed camera status"""
+    device = repo.get(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if device.device_type != "camera":
+        raise HTTPException(status_code=400, detail="Device is not a camera")
+
+    adapter = get_device_adapter(device)
+    if not isinstance(adapter, CameraDevice):
+        raise HTTPException(status_code=400, detail="Camera adapter not available")
+
+    try:
+        status = adapter.get_status()
+        info = adapter.get_info()
+        stream_url = adapter.get_stream_url() if hasattr(adapter, "get_stream_url") else None
+
+        return {
+            "device_id": device_id,
+            "online": adapter.test_connection(),
+            "status": status,
+            "info": info,
+            "stream_url": stream_url,
+            "capabilities": [cap.value for cap in adapter.get_capabilities()],
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error getting camera status: {str(e)}"
+        )
+
+
+@app.get("/api/cameras/{device_id}/snapshot")
+async def get_camera_snapshot(device_id: str):
+    """Get camera snapshot (preview image)"""
+    device = repo.get(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if device.device_type != "camera":
+        raise HTTPException(status_code=400, detail="Device is not a camera")
+
+    adapter = get_device_adapter(device)
+    if not isinstance(adapter, CameraDevice):
+        raise HTTPException(status_code=400, detail="Camera adapter not available")
+
+    try:
+        snapshot_data = adapter.get_snapshot()
+        
+        return {
+            "device_id": device_id,
+            "success": snapshot_data.get("success", False),
+            "content_type": snapshot_data.get("content_type", "image/svg+xml"),
+            "size_bytes": snapshot_data.get("size_bytes", 0),
+            "source": snapshot_data.get("source", "unknown"),
+            "is_placeholder": snapshot_data.get("is_placeholder", True),
+            "timestamp": datetime.now().isoformat(),
+            "online": adapter.test_connection(),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error getting camera snapshot: {str(e)}"
+        )
+
+
+@app.get("/api/cameras/{device_id}/snapshot/image")
+async def get_camera_snapshot_image(device_id: str):
+    """Get camera snapshot image data"""
+    device = repo.get(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if device.device_type != "camera":
+        raise HTTPException(status_code=400, detail="Device is not a camera")
+
+    adapter = get_device_adapter(device)
+    if not isinstance(adapter, CameraDevice):
+        raise HTTPException(status_code=400, detail="Camera adapter not available")
+
+    try:
+        snapshot_data = adapter.get_snapshot()
+        
+        if not snapshot_data.get("success", False):
+            raise HTTPException(status_code=404, detail="Failed to get snapshot")
+        
+        import base64
+        from fastapi.responses import Response
+        
+        image_data = base64.b64decode(snapshot_data["image_data"])
+        content_type = snapshot_data.get("content_type", "image/svg+xml")
+        
+        return Response(content=image_data, media_type=content_type)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error getting camera snapshot image: {str(e)}"
+        )
+
+
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "version": "0.1.0"}
+    """Health check endpoint for Docker and load balancers"""
+    health_status = {
+        "status": "healthy",
+        "version": "0.1.0",
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
+    }
+    
+    # Check database connectivity
+    try:
+        # Try to get device count from database
+        devices = repo.get_all()
+        health_status["checks"]["database"] = {
+            "status": "healthy",
+            "device_count": len(devices)
+        }
+    except Exception as e:
+        health_status["checks"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health_status["status"] = "unhealthy"
+    
+    # Check configuration
+    try:
+        config_data = config.get_config()
+        health_status["checks"]["configuration"] = {
+            "status": "healthy",
+            "config_keys": list(config_data.keys()) if config_data else []
+        }
+    except Exception as e:
+        health_status["checks"]["configuration"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health_status["status"] = "unhealthy"
+    
+    # Check memory usage (optional)
+    try:
+        import psutil
+        memory = psutil.virtual_memory()
+        health_status["checks"]["memory"] = {
+            "status": "healthy",
+            "percent_used": memory.percent,
+            "available_mb": memory.available // (1024 * 1024)
+        }
+    except ImportError:
+        health_status["checks"]["memory"] = {
+            "status": "info",
+            "message": "psutil not installed"
+        }
+    except Exception as e:
+        health_status["checks"]["memory"] = {
+            "status": "warning",
+            "error": str(e)
+        }
+    
+    # Set appropriate HTTP status code
+    if health_status["status"] == "healthy":
+        return JSONResponse(content=health_status, status_code=200)
+    else:
+        return JSONResponse(content=health_status, status_code=503)
 
 
 # WebSocket connection manager

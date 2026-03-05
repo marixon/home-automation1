@@ -232,6 +232,7 @@ class GoogleDriveStorage(StorageBackend):
                         metadata_file_id = metadata_results['files'][0]['id']
                         
                         # Download and parse metadata
+                        from googleapiclient.http import MediaIoBaseDownload
                         request = self.service.files().get_media(fileId=metadata_file_id)
                         metadata_content = BytesIO()
                         downloader = MediaIoBaseDownload(metadata_content, request)
@@ -354,6 +355,7 @@ class GoogleDriveStorage(StorageBackend):
                     metadata_file_id = metadata_results['files'][0]['id']
                     
                     # Download metadata
+                    from googleapiclient.http import MediaIoBaseDownload
                     request = self.service.files().get_media(fileId=metadata_file_id)
                     metadata_content = BytesIO()
                     downloader = MediaIoBaseDownload(metadata_content, request)
@@ -377,7 +379,3 @@ class GoogleDriveStorage(StorageBackend):
         """Clean up Google Drive connection."""
         self.service = None
         self.initialized = False
-
-
-# Import for MediaIoBaseDownload
-from googleapiclient.http import MediaIoBaseDownload

@@ -1,24 +1,27 @@
+#!/usr/bin/env python3
 """
-Global camera service manager for handling multiple cameras.
+Global camera service manager.
+Manages all camera services across the system.
 """
 
+import sys
+import os
 import threading
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
-from homeauto.utils.logging_config import get_logger
-from homeauto.database.repository import DeviceRepository
-from homeauto.config.manager import ConfigManager
-from homeauto.devices.camera import CameraDevice
 
+from homeauto.config.manager import ConfigManager
+from homeauto.database.repository import DeviceRepository
 from .manager import CameraServiceManager
+from homeauto.devices.camera import CameraDevice
 
 
 class GlobalCameraServiceManager:
-    """Global manager for all camera services across all cameras."""
+    """Global manager for all camera services."""
     
     def __init__(self):
-        self.logger = get_logger(__name__)
+        # Core components
         self.config_manager = ConfigManager()
         self.device_repo = DeviceRepository()
         
@@ -28,7 +31,7 @@ class GlobalCameraServiceManager:
         self.initialized = False
         
         # Configuration
-        self.config = self.config_manager.get_config().get("camera_services", {})
+        self.config = self.config_manager.config.get("camera_services", {})
         self.enabled = self.config.get("enabled", True)
         
         # Statistics
@@ -38,448 +41,380 @@ class GlobalCameraServiceManager:
             "initialized_cameras": 0,
             "running_cameras": 0,
             "total_snapshots": 0,
-            "total_errors": 0,
-            "last_scan_time": None
+            "total_motion_events": 0,
+            "total_object_detections": 0,
+            "storage_usage": {},
+            "service_status": {}
         }
         
-        # Auto-start thread
-        self.auto_start = self.config.get("auto_start", False)
-        self.scan_interval = self.config.get("scan_interval", 300)  # seconds
-        self.scan_thread = None
+        # Thread management
+        self.control_thread = None
+        self.shutdown_event = threading.Event()
     
     def initialize(self) -> bool:
-        """Initialize the global service manager."""
+        """Initialize the global camera service manager."""
+        if self.initialized:
+            return True
+        
         if not self.enabled:
-            self.logger.info("Camera services are disabled in configuration")
+            self.log("Camera services are disabled in configuration")
             return False
         
         try:
-            self.logger.info("Initializing global camera service manager")
-            
-            # Load camera devices
-            cameras = self._get_camera_devices()
+            # Load camera devices from database
+            cameras = self.device_repo.get_by_type("camera")
             self.stats["total_cameras"] = len(cameras)
             
-            # Initialize service managers for each camera
-            for camera_id, camera_device in cameras.items():
+            # Create service manager for each camera
+            for camera in cameras:
                 try:
-                    self._initialize_camera_service_manager(camera_id, camera_device)
+                                        # Convert Device object to CameraDevice object
+                    credentials = self.config_manager.get_credentials('camera') or {}
+                    camera_device = CameraDevice(camera.ip_address, credentials)
+                    
+                    manager = CameraServiceManager(camera_device, self.config)
+                    self.service_managers[camera.id] = manager
+                    self.stats["initialized_cameras"] += 1
+                    
+                    self.log(f"Initialized service manager for camera: {camera.id}")
+                    
                 except Exception as e:
-                    self.logger.error(f"Failed to initialize service manager for camera {camera_id}: {e}")
-                    self.stats["total_errors"] += 1
+                    self.log(f"Failed to initialize service manager for camera {camera.id}: {e}")
             
-            self.initialized = len(self.service_managers) > 0
-            self.stats["initialized_cameras"] = len(self.service_managers)
-            
-            if self.initialized:
-                self.logger.info(f"Global camera service manager initialized with {len(self.service_managers)} cameras")
-                
-                # Start auto-start thread if configured
-                if self.auto_start:
-                    self._start_auto_start_thread()
-            else:
-                self.logger.warning("No camera service managers were initialized")
-            
-            return self.initialized
+            self.initialized = True
+            self.log(f"Global camera service manager initialized with {self.stats['initialized_cameras']} cameras")
+            return True
             
         except Exception as e:
-            self.logger.error(f"Failed to initialize global camera service manager: {e}")
+            self.log(f"Failed to initialize global camera service manager: {e}")
             return False
     
-    def _get_camera_devices(self) -> Dict[str, CameraDevice]:
-        """Get all camera devices from the database."""
-        cameras = {}
-        
-        try:
-            all_devices = self.device_repo.get_all()
-            
-            for device in all_devices:
-                if device.device_type == "camera":
-                    # Check if camera is enabled in configuration
-                    cameras_config = self.config.get("cameras", {})
-                    camera_enabled = True
-                    
-                    if device.ip_address in cameras_config:
-                        camera_config = cameras_config[device.ip_address]
-                        camera_enabled = camera_config.get("enabled", True)
-                    
-                    if camera_enabled:
-                        credentials = self.config_manager.get_credentials("camera") or {}
-                        camera_device = CameraDevice(device.ip_address, credentials)
-                        cameras[device.id] = camera_device
-            
-            self.logger.info(f"Found {len(cameras)} camera devices")
-            return cameras
-            
-        except Exception as e:
-            self.logger.error(f"Error getting camera devices: {e}")
-            return {}
-    
-    def _initialize_camera_service_manager(self, camera_id: str, camera_device: CameraDevice):
-        """Initialize a service manager for a specific camera."""
-        # Get device info
-        device = self.device_repo.get(camera_id)
-        if not device:
-            self.logger.error(f"Device {camera_id} not found in database")
-            return
-        
-        # Get camera-specific configuration
-        camera_config = self.config.get("defaults", {}).copy()
-        
-        # Apply camera-specific overrides
-        cameras_config = self.config.get("cameras", {})
-        if device.ip_address in cameras_config:
-            camera_config.update(cameras_config[device.ip_address])
-        
-        # Add camera info to config
-        camera_config["camera_name"] = device.name
-        camera_config["camera_ip"] = device.ip_address
-        
-        # Create service manager
-        service_manager = CameraServiceManager(camera_device, camera_config)
-        
-        # Initialize the service manager
-        if service_manager.initialize():
-            self.service_managers[camera_id] = service_manager
-            self.logger.info(f"Service manager initialized for camera: {device.name} ({device.ip_address})")
-        else:
-            self.logger.error(f"Failed to initialize service manager for camera: {device.name}")
-    
-    def start_all(self) -> bool:
+    def start_all_services(self) -> bool:
         """Start all camera services."""
         if not self.initialized:
-            self.logger.error("Global service manager not initialized")
-            return False
+            if not self.initialize():
+                return False
         
         if self.running:
-            self.logger.warning("Services already running")
+            self.log("Services already running")
             return True
         
         try:
-            self.logger.info("Starting all camera services")
-            started_count = 0
-            
-            for camera_id, service_manager in self.service_managers.items():
-                try:
-                    if service_manager.start():
-                        started_count += 1
-                        self.logger.info(f"Services started for camera {camera_id}")
-                    else:
-                        self.logger.error(f"Failed to start services for camera {camera_id}")
-                        self.stats["total_errors"] += 1
-                except Exception as e:
-                    self.logger.error(f"Error starting services for camera {camera_id}: {e}")
-                    self.stats["total_errors"] += 1
-            
-            self.running = started_count > 0
-            self.stats["running_cameras"] = started_count
+            self.running = True
             self.stats["start_time"] = datetime.now().isoformat()
+            self.shutdown_event.clear()
             
-            if self.running:
-                self.logger.info(f"Started services for {started_count} cameras")
-            else:
-                self.logger.warning("No camera services were started")
+            # Start control thread
+            self.control_thread = threading.Thread(target=self._control_loop)
+            self.control_thread.daemon = True
+            self.control_thread.start()
             
-            return self.running
+            # Start individual camera services
+            for camera_id, manager in self.service_managers.items():
+                try:
+                    if manager.start():
+                        self.stats["running_cameras"] += 1
+                        self.stats["service_status"][camera_id] = "running"
+                        self.log(f"Started services for camera: {camera_id}")
+                    else:
+                        self.stats["service_status"][camera_id] = "failed"
+                        self.log(f"Failed to start services for camera: {camera_id}")
+                        
+                except Exception as e:
+                    self.stats["service_status"][camera_id] = "error"
+                    self.log(f"Error starting services for camera {camera_id}: {e}")
+            
+            self.log(f"Started all camera services. Running: {self.stats['running_cameras']}/{self.stats['total_cameras']}")
+            return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start all camera services: {e}")
+            self.log(f"Failed to start camera services: {e}")
+            self.running = False
             return False
     
-    def stop_all(self) -> bool:
+    def stop_all_services(self) -> bool:
         """Stop all camera services."""
         if not self.running:
             return True
         
         try:
-            self.logger.info("Stopping all camera services")
-            stopped_count = 0
-            
-            for camera_id, service_manager in self.service_managers.items():
-                try:
-                    if service_manager.stop():
-                        stopped_count += 1
-                        self.logger.info(f"Services stopped for camera {camera_id}")
-                    else:
-                        self.logger.error(f"Failed to stop services for camera {camera_id}")
-                except Exception as e:
-                    self.logger.error(f"Error stopping services for camera {camera_id}: {e}")
-            
             self.running = False
-            self.stats["running_cameras"] = 0
+            self.shutdown_event.set()
             
-            self.logger.info(f"Stopped services for {stopped_count} cameras")
+            # Stop individual camera services
+            for camera_id, manager in self.service_managers.items():
+                try:
+                    if manager.stop():
+                        self.stats["service_status"][camera_id] = "stopped"
+                        self.log(f"Stopped services for camera: {camera_id}")
+                    else:
+                        self.log(f"Failed to stop services for camera: {camera_id}")
+                        
+                except Exception as e:
+                    self.log(f"Error stopping services for camera {camera_id}: {e}")
+            
+            # Wait for control thread to stop
+            if self.control_thread:
+                self.control_thread.join(timeout=10)
+            
+            self.stats["running_cameras"] = 0
+            self.log("Stopped all camera services")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to stop all camera services: {e}")
+            self.log(f"Error stopping camera services: {e}")
             return False
     
-    def start_camera(self, camera_id: str) -> bool:
-        """Start services for a specific camera."""
-        if camera_id not in self.service_managers:
-            self.logger.error(f"Service manager not found for camera {camera_id}")
-            return False
-        
+    def _control_loop(self):
+        """Main control loop for monitoring and managing services."""
+        while not self.shutdown_event.is_set() and self.running:
+            try:
+                # Update statistics
+                self._update_statistics()
+                
+                # Check service health
+                self._check_service_health()
+                
+                # Process any pending tasks
+                self._process_pending_tasks()
+                
+                # Sleep for a bit
+                self.shutdown_event.wait(timeout=5)
+                
+            except Exception as e:
+                self.log(f"Error in control loop: {e}")
+                time.sleep(1)
+    
+    def _update_statistics(self):
+        """Update service statistics."""
         try:
-            service_manager = self.service_managers[camera_id]
-            success = service_manager.start()
+            total_snapshots = 0
+            total_motion = 0
+            total_objects = 0
             
-            if success:
-                self.stats["running_cameras"] += 1
-                self.running = self.stats["running_cameras"] > 0
-                self.logger.info(f"Services started for camera {camera_id}")
-            else:
-                self.logger.error(f"Failed to start services for camera {camera_id}")
-                self.stats["total_errors"] += 1
+            for camera_id, manager in self.service_managers.items():
+                status = manager.get_status()
+                
+                total_snapshots += status.get("total_snapshots", 0)
+                total_motion += status.get("motion_events", 0)
+                total_objects += status.get("object_detections", 0)
+                
+                # Update storage usage
+                storage_stats = status.get("storage_stats", {})
+                for backend, usage in storage_stats.items():
+                    if backend not in self.stats["storage_usage"]:
+                        self.stats["storage_usage"][backend] = 0
+                    self.stats["storage_usage"][backend] += usage.get("total_files", 0)
             
-            return success
+            self.stats["total_snapshots"] = total_snapshots
+            self.stats["total_motion_events"] = total_motion
+            self.stats["total_object_detections"] = total_objects
             
         except Exception as e:
-            self.logger.error(f"Error starting services for camera {camera_id}: {e}")
-            self.stats["total_errors"] += 1
-            return False
+            self.log(f"Error updating statistics: {e}")
     
-    def stop_camera(self, camera_id: str) -> bool:
-        """Stop services for a specific camera."""
+    def _check_service_health(self):
+        """Check health of all camera services."""
+        for camera_id, manager in self.service_managers.items():
+            try:
+                status = manager.get_status()
+                if status.get("running", False):
+                    self.stats["service_status"][camera_id] = "running"
+                else:
+                    self.stats["service_status"][camera_id] = "stopped"
+                    
+                    # Try to restart if it should be running
+                    if self.running and status.get("should_run", False):
+                        self.log(f"Restarting services for camera: {camera_id}")
+                        manager.start()
+                        
+            except Exception as e:
+                self.log(f"Error checking health for camera {camera_id}: {e}")
+                self.stats["service_status"][camera_id] = "error"
+    
+    def _process_pending_tasks(self):
+        """Process any pending tasks."""
+        # This can be extended to handle queued tasks
+        pass
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current status of all camera services."""
+        return {
+            "running": self.running,
+            "initialized": self.initialized,
+            "enabled": self.enabled,
+            "statistics": self.stats,
+            "cameras": {
+                camera_id: manager.get_status()
+                for camera_id, manager in self.service_managers.items()
+            }
+        }
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get detailed statistics."""
+        return self.stats.copy()
+    
+    def take_snapshot(self, camera_id: str) -> Optional[Dict[str, Any]]:
+        """Take a snapshot from a specific camera."""
         if camera_id not in self.service_managers:
-            self.logger.error(f"Service manager not found for camera {camera_id}")
-            return False
+            self.log(f"Camera not found: {camera_id}")
+            return None
         
         try:
-            service_manager = self.service_managers[camera_id]
-            success = service_manager.stop()
+            manager = self.service_managers[camera_id]
+            result = manager.take_snapshot()
             
-            if success:
-                self.stats["running_cameras"] = max(0, self.stats["running_cameras"] - 1)
-                self.running = self.stats["running_cameras"] > 0
-                self.logger.info(f"Services stopped for camera {camera_id}")
-            else:
-                self.logger.error(f"Failed to stop services for camera {camera_id}")
+            if result.get("success", False):
+                self.stats["total_snapshots"] += 1
             
-            return success
+            return result
             
         except Exception as e:
-            self.logger.error(f"Error stopping services for camera {camera_id}: {e}")
-            return False
+            self.log(f"Error taking snapshot for camera {camera_id}: {e}")
+            return None
     
-    def get_camera_service_manager(self, camera_id: str) -> Optional[CameraServiceManager]:
+    def get_service_manager(self, camera_id: str) -> Optional[CameraServiceManager]:
         """Get the service manager for a specific camera."""
         return self.service_managers.get(camera_id)
     
-    def get_status(self) -> Dict[str, Any]:
-        """Get global status of all camera services."""
-        camera_statuses = {}
-        
-        for camera_id, service_manager in self.service_managers.items():
-            try:
-                camera_statuses[camera_id] = service_manager.get_status()
-            except Exception as e:
-                self.logger.error(f"Error getting status for camera {camera_id}: {e}")
-                camera_statuses[camera_id] = {"error": str(e)}
-        
-        # Calculate runtime
-        runtime = None
-        if self.stats["start_time"]:
-            start_dt = datetime.fromisoformat(self.stats["start_time"]) if isinstance(self.stats["start_time"], str) else self.stats["start_time"]
-            runtime = (datetime.now() - start_dt).total_seconds()
-        
-        status = {
-            "enabled": self.enabled,
-            "initialized": self.initialized,
-            "running": self.running,
-            "auto_start": self.auto_start,
-            "scan_interval": self.scan_interval,
-            "stats": self.stats,
-            "runtime_seconds": runtime,
-            "camera_count": len(self.service_managers),
-            "camera_statuses": camera_statuses
-        }
-        
-        return status
-    
-    def get_camera_status(self, camera_id: str) -> Optional[Dict[str, Any]]:
-        """Get status for a specific camera."""
-        service_manager = self.get_camera_service_manager(camera_id)
-        if not service_manager:
-            return None
-        
+    def add_camera(self, camera_device, config: Dict[str, Any] = None) -> bool:
+        """Add a new camera to the service manager."""
         try:
-            return service_manager.get_status()
+            if camera_device.id in self.service_managers:
+                self.log(f"Camera already exists: {camera_device.id}")
+                return False
+            
+            manager_config = config or self.config
+            manager = CameraServiceManager(camera_device, manager_config)
+            self.service_managers[camera_device.id] = manager
+            self.stats["total_cameras"] += 1
+            self.stats["initialized_cameras"] += 1
+            
+            # Start services if global manager is running
+            if self.running:
+                if manager.start():
+                    self.stats["running_cameras"] += 1
+                    self.stats["service_status"][camera_device.id] = "running"
+                else:
+                    self.stats["service_status"][camera_device.id] = "failed"
+            
+            self.log(f"Added camera: {camera_device.id}")
+            return True
+            
         except Exception as e:
-            self.logger.error(f"Error getting camera status: {e}")
-            return {"error": str(e)}
+            self.log(f"Failed to add camera {camera_device.id}: {e}")
+            return False
     
-    def take_snapshot(self, camera_id: str, metadata: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
-        """Take a snapshot from a specific camera."""
-        service_manager = self.get_camera_service_manager(camera_id)
-        if not service_manager:
-            return None
-        
-        try:
-            result = service_manager.take_snapshot(metadata)
-            if result:
-                self.stats["total_snapshots"] += 1
-            return result
-        except Exception as e:
-            self.logger.error(f"Error taking snapshot: {e}")
-            self.stats["total_errors"] += 1
-            return None
-    
-    def request_snapshot(self, camera_id: str, metadata: Dict[str, Any] = None, priority: str = "normal") -> bool:
-        """Request a snapshot from a specific camera."""
-        service_manager = self.get_camera_service_manager(camera_id)
-        if not service_manager:
+    def remove_camera(self, camera_id: str) -> bool:
+        """Remove a camera from the service manager."""
+        if camera_id not in self.service_managers:
             return False
         
         try:
-            success = service_manager.request_snapshot(metadata, priority)
-            return success
+            manager = self.service_managers[camera_id]
+            
+            # Stop services if running
+            if self.running:
+                manager.stop()
+            
+            # Remove from managers
+            del self.service_managers[camera_id]
+            
+            # Update statistics
+            self.stats["total_cameras"] -= 1
+            self.stats["initialized_cameras"] -= 1
+            
+            if camera_id in self.stats["service_status"]:
+                del self.stats["service_status"][camera_id]
+            
+            self.log(f"Removed camera: {camera_id}")
+            return True
+            
         except Exception as e:
-            self.logger.error(f"Error requesting snapshot: {e}")
-            self.stats["total_errors"] += 1
+            self.log(f"Error removing camera {camera_id}: {e}")
             return False
     
-    def check_motion(self, camera_id: str) -> Optional[Dict[str, Any]]:
-        """Check motion for a specific camera."""
-        service_manager = self.get_camera_service_manager(camera_id)
-        if not service_manager:
-            return None
-        
-        try:
-            return service_manager.check_motion()
-        except Exception as e:
-            self.logger.error(f"Error checking motion: {e}")
-            self.stats["total_errors"] += 1
-            return None
-    
-    def check_objects(self, camera_id: str) -> Optional[Dict[str, Any]]:
-        """Check objects for a specific camera."""
-        service_manager = self.get_camera_service_manager(camera_id)
-        if not service_manager:
-            return None
-        
-        try:
-            return service_manager.check_objects()
-        except Exception as e:
-            self.logger.error(f"Error checking objects: {e}")
-            self.stats["total_errors"] += 1
-            return None
-    
-    def _start_auto_start_thread(self):
-        """Start the auto-start thread."""
-        if self.scan_thread and self.scan_thread.is_alive():
-            return
-        
-        self.scan_thread = threading.Thread(target=self._auto_start_loop)
-        self.scan_thread.daemon = True
-        self.scan_thread.start()
-        self.logger.info("Auto-start thread started")
-    
-    def _auto_start_loop(self):
-        """Background thread for auto-start functionality."""
-        self.logger.info("Auto-start loop started")
-        
-        while self.running:
-            try:
-                # Scan for new cameras
-                self._scan_for_new_cameras()
-                
-                # Update scan time
-                self.stats["last_scan_time"] = datetime.now().isoformat()
-                
-                # Sleep for scan interval
-                time.sleep(self.scan_interval)
-                
-            except Exception as e:
-                self.logger.error(f"Error in auto-start loop: {e}")
-                time.sleep(60)  # Sleep for a minute before retry
-        
-        self.logger.info("Auto-start loop stopped")
-    
-    def _scan_for_new_cameras(self):
-        """Scan for new cameras and initialize them."""
-        try:
-            # Get current camera IDs
-            current_camera_ids = set(self.service_managers.keys())
-            
-            # Get all camera devices
-            cameras = self._get_camera_devices()
-            
-            # Find new cameras
-            for camera_id, camera_device in cameras.items():
-                if camera_id not in current_camera_ids:
-                    self.logger.info(f"Found new camera: {camera_id}")
-                    self._initialize_camera_service_manager(camera_id, camera_device)
-                    
-                    # Auto-start if configured
-                    if self.running:
-                        service_manager = self.service_managers.get(camera_id)
-                        if service_manager:
-                            service_manager.start()
-                            self.stats["running_cameras"] += 1
-            
-            # Update stats
-            self.stats["total_cameras"] = len(cameras)
-            self.stats["initialized_cameras"] = len(self.service_managers)
-            
-        except Exception as e:
-            self.logger.error(f"Error scanning for new cameras: {e}")
+    def log(self, message: str):
+        """Log a message."""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{timestamp}] [GlobalCameraManager] {message}")
     
     def cleanup(self):
-        """Clean up all resources."""
-        self.logger.info("Cleaning up global camera service manager")
-        
-        # Stop all services
-        self.stop_all()
-        
-        # Clean up individual service managers
-        for camera_id, service_manager in self.service_managers.items():
-            try:
-                service_manager.cleanup()
-            except Exception as e:
-                self.logger.error(f"Error cleaning up service manager for camera {camera_id}: {e}")
-        
-        self.service_managers.clear()
+        """Clean up resources."""
+        self.stop_all_services()
         self.initialized = False
-        self.running = False
+
+
+def main():
+    """Command-line interface for the global camera service manager."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Global Camera Service Manager")
+    parser.add_argument("command", choices=["start", "stop", "status", "restart", "snapshot"],
+                       help="Command to execute")
+    parser.add_argument("--camera", help="Camera ID (for snapshot command)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    
+    args = parser.parse_args()
+    
+    manager = GlobalCameraServiceManager()
+    
+    if args.command == "start":
+        if manager.start_all_services():
+            print("Camera services started successfully")
+            sys.exit(0)
+        else:
+            print("Failed to start camera services")
+            sys.exit(1)
+    
+    elif args.command == "stop":
+        if manager.stop_all_services():
+            print("Camera services stopped successfully")
+            sys.exit(0)
+        else:
+            print("Failed to stop camera services")
+            sys.exit(1)
+    
+    elif args.command == "restart":
+        manager.stop_all_services()
+        time.sleep(2)
+        if manager.start_all_services():
+            print("Camera services restarted successfully")
+            sys.exit(0)
+        else:
+            print("Failed to restart camera services")
+            sys.exit(1)
+    
+    elif args.command == "status":
+        status = manager.get_status()
         
-        self.logger.info("Global camera service manager cleaned up")
-
-
-# Global instance
-_global_manager: Optional[GlobalCameraServiceManager] = None
-
-
-def get_global_manager() -> GlobalCameraServiceManager:
-    """Get or create the global camera service manager instance."""
-    global _global_manager
+        if args.verbose:
+            import json
+            print(json.dumps(status, indent=2))
+        else:
+            print(f"Running: {status['running']}")
+            print(f"Initialized: {status['initialized']}")
+            print(f"Enabled: {status['enabled']}")
+            print(f"Total cameras: {status['statistics']['total_cameras']}")
+            print(f"Running cameras: {status['statistics']['running_cameras']}")
+            print(f"Total snapshots: {status['statistics']['total_snapshots']}")
     
-    if _global_manager is None:
-        _global_manager = GlobalCameraServiceManager()
-    
-    return _global_manager
+    elif args.command == "snapshot":
+        if not args.camera:
+            print("Error: --camera argument required for snapshot command")
+            sys.exit(1)
+        
+        result = manager.take_snapshot(args.camera)
+        if result and result.get("success", False):
+            print(f"Snapshot successful: {result.get('filename', 'Unknown')}")
+            if args.verbose:
+                import json
+                print(json.dumps(result, indent=2))
+            sys.exit(0)
+        else:
+            print(f"Snapshot failed: {result.get('error', 'Unknown error') if result else 'Unknown error'}")
+            sys.exit(1)
 
 
-def initialize_global_manager() -> bool:
-    """Initialize the global camera service manager."""
-    manager = get_global_manager()
-    return manager.initialize()
-
-
-def start_all_services() -> bool:
-    """Start all camera services."""
-    manager = get_global_manager()
-    return manager.start_all()
-
-
-def stop_all_services() -> bool:
-    """Stop all camera services."""
-    manager = get_global_manager()
-    return manager.stop_all()
-
-
-def get_global_status() -> Dict[str, Any]:
-    """Get global status of all camera services."""
-    manager = get_global_manager()
-    return manager.get_status()
+if __name__ == "__main__":
+    main()

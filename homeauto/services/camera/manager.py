@@ -45,15 +45,18 @@ class CameraServiceManager:
         try:
             self.logger.info(f"Initializing camera service manager for {self.camera.ip}")
             
+            # Get configuration from defaults or direct config
+            defaults = self.config.get("defaults", {})
+            
             # Initialize storage manager
-            storage_config = self.config.get("storage", {})
+            storage_config = defaults.get("storage", self.config.get("storage", {}))
             self.storage_manager = StorageManager(storage_config)
             if not self.storage_manager.initialize():
                 self.logger.error("Failed to initialize storage manager")
                 return False
             
             # Initialize services based on configuration
-            services_config = self.config.get("services", {})
+            services_config = defaults.get("services", self.config.get("services", {}))
             
             # On-demand snapshot service
             if services_config.get("on_demand", {}).get("enabled", True):
@@ -86,78 +89,43 @@ class CameraServiceManager:
     def _initialize_service(self, service_name: str, service_class, config: Dict[str, Any]):
         """Initialize a specific service."""
         try:
-            # Add camera name to config
-            service_config = {
-                **config,
-                "camera_name": self.config.get("camera_name", f"Camera_{self.camera.ip}"),
-                "camera_ip": self.camera.ip
-            }
-            
-            # Create service instance
-            service = service_class(self.camera, service_config)
-            
-            # Set storage manager if service supports it
-            if hasattr(service, 'set_storage_manager'):
-                service.set_storage_manager(self.storage_manager)
-            
-            # Register callbacks
-            self._register_service_callbacks(service_name, service)
-            
+            service = service_class(self.camera, config)
+            # Set storage manager for snapshot-based services
+            if hasattr(service, 'storage_manager'):
+                service.storage_manager = self.storage_manager
             self.services[service_name] = service
-            self.logger.info(f"Service '{service_name}' initialized")
-            
+            self.logger.info(f"Initialized {service_name} service")
         except Exception as e:
-            self.logger.error(f"Failed to initialize service '{service_name}': {e}")
-    
-    def _register_service_callbacks(self, service_name: str, service):
-        """Register callbacks for service events."""
-        # Register snapshot callback
-        def on_snapshot_callback(snapshot_info):
-            self.stats["total_snapshots"] += 1
-            self.stats["last_activity"] = datetime.now().isoformat()
-            self.logger.debug(f"Service '{service_name}' took snapshot")
-        
-        # Register error callback
-        def on_error_callback(error_type, error_info):
-            self.stats["service_errors"] += 1
-            self.logger.error(f"Service '{service_name}' error: {error_type} - {error_info}")
-        
-        # Register event callback
-        def on_event_callback(event_type, event_data):
-            self.logger.debug(f"Service '{service_name}' event: {event_type}")
-        
-        service.register_callback("on_snapshot", on_snapshot_callback)
-        service.register_callback("on_error", on_error_callback)
-        service.register_callback("on_event", on_event_callback)
+            self.logger.error(f"Error initializing {service_name} service: {e}")
     
     def start(self) -> bool:
         """Start all camera services."""
-        if self.running:
-            self.logger.warning("Services already running")
-            return True
-        
         if not self.initialized:
-            self.logger.error("Services not initialized")
-            return False
+            if not self.initialize():
+                return False
         
         try:
+            self.running = True
+            self.stats["start_time"] = datetime.now().isoformat()
+            
             # Start all services
             for service_name, service in self.services.items():
                 try:
                     if service.start():
-                        self.logger.info(f"Service '{service_name}' started")
+                        self.logger.info(f"Started {service_name} service")
                     else:
-                        self.logger.error(f"Failed to start service '{service_name}'")
+                        self.logger.error(f"Failed to start {service_name} service")
+                        self.stats["service_errors"] += 1
                 except Exception as e:
-                    self.logger.error(f"Error starting service '{service_name}': {e}")
+                    self.logger.error(f"Error starting {service_name} service: {e}")
+                    self.stats["service_errors"] += 1
             
-            self.running = True
-            self.stats["start_time"] = datetime.now().isoformat()
-            self.logger.info(f"All camera services started for {self.camera.ip}")
+            self.logger.info(f"Camera service manager started with {len(self.services)} services")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start camera services: {e}")
+            self.logger.error(f"Failed to start camera service manager: {e}")
+            self.running = False
             return False
     
     def stop(self) -> bool:
@@ -166,146 +134,187 @@ class CameraServiceManager:
             return True
         
         try:
+            self.running = False
+            
             # Stop all services
             for service_name, service in self.services.items():
                 try:
-                    if service.stop():
-                        self.logger.info(f"Service '{service_name}' stopped")
-                    else:
-                        self.logger.warning(f"Failed to stop service '{service_name}'")
+                    service.stop()
+                    self.logger.info(f"Stopped {service_name} service")
                 except Exception as e:
-                    self.logger.error(f"Error stopping service '{service_name}': {e}")
+                    self.logger.error(f"Error stopping {service_name} service: {e}")
             
-            # Cleanup storage manager
-            if self.storage_manager:
-                self.storage_manager.cleanup()
-            
-            self.running = False
-            self.logger.info(f"All camera services stopped for {self.camera.ip}")
+            self.logger.info("Camera service manager stopped")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error stopping camera services: {e}")
+            self.logger.error(f"Error stopping camera service manager: {e}")
             return False
+    
+    def take_snapshot(self, metadata: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """Take an immediate snapshot."""
+        if "on_demand" not in self.services:
+            self.logger.warning("On-demand snapshot service not available")
+            return None
+        
+        try:
+            result = self.services["on_demand"].take_snapshot(metadata)
+            if result and result.get("success", False):
+                self.stats["total_snapshots"] += 1
+                self.stats["last_activity"] = datetime.now().isoformat()
+            return result
+        except Exception as e:
+            self.logger.error(f"Error taking snapshot: {e}")
+            return None
+    
+    def request_snapshot(self, metadata: Dict[str, Any] = None) -> bool:
+        """Request a snapshot (queued)."""
+        if "on_demand" not in self.services:
+            self.logger.warning("On-demand snapshot service not available")
+            return False
+        
+        try:
+            return self.services["on_demand"].request_snapshot(metadata)
+        except Exception as e:
+            self.logger.error(f"Error requesting snapshot: {e}")
+            return False
+    
+    def check_motion(self) -> Optional[Dict[str, Any]]:
+        """Check for motion."""
+        if "motion" not in self.services:
+            return None
+        
+        try:
+            return self.services["motion"].check_motion()
+        except Exception as e:
+            self.logger.error(f"Error checking motion: {e}")
+            return None
+    
+    def check_objects(self) -> Optional[Dict[str, Any]]:
+        """Check for objects."""
+        if "object_recognition" not in self.services:
+            return None
+        
+        try:
+            return self.services["object_recognition"].check_objects()
+        except Exception as e:
+            self.logger.error(f"Error checking objects: {e}")
+            return None
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current status of all services."""
+        service_status = {}
+        for service_name, service in self.services.items():
+            try:
+                service_status[service_name] = service.get_status()
+            except Exception as e:
+                service_status[service_name] = {"error": str(e)}
+        
+        return {
+            "running": self.running,
+            "initialized": self.initialized,
+            "camera_ip": self.camera.ip,
+            "services_available": list(self.services.keys()),
+            "stats": self.stats.copy(),
+            "service_status": service_status,
+            "storage_available": self.storage_manager is not None and self.storage_manager.initialized
+        }
     
     def get_service(self, service_name: str) -> Optional[Any]:
         """Get a specific service by name."""
         return self.services.get(service_name)
     
-    def take_snapshot(self, metadata: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
-        """Take a snapshot using the on-demand service."""
-        on_demand_service = self.get_service("on_demand")
-        if not on_demand_service:
-            self.logger.error("On-demand snapshot service not available")
-            return None
-        
-        return on_demand_service.take_snapshot_now(metadata)
-    
-    def request_snapshot(self, metadata: Dict[str, Any] = None, priority: str = "normal") -> bool:
-        """Request a snapshot via the on-demand service queue."""
-        on_demand_service = self.get_service("on_demand")
-        if not on_demand_service:
-            self.logger.error("On-demand snapshot service not available")
+    def add_schedule(self, schedule_config: Dict[str, Any]) -> bool:
+        """Add a new schedule to the scheduled service."""
+        if "scheduled" not in self.services:
             return False
         
-        return on_demand_service.request_snapshot(metadata, priority)
+        try:
+            return self.services["scheduled"].add_schedule(schedule_config)
+        except Exception as e:
+            self.logger.error(f"Error adding schedule: {e}")
+            return False
     
-    def execute_schedule(self, schedule_name: str, metadata: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
-        """Execute a specific schedule immediately."""
-        scheduled_service = self.get_service("scheduled")
-        if not scheduled_service:
-            self.logger.error("Scheduled snapshot service not available")
-            return None
+    def remove_schedule(self, schedule_name: str) -> bool:
+        """Remove a schedule from the scheduled service."""
+        if "scheduled" not in self.services:
+            return False
         
-        return scheduled_service.execute_schedule(schedule_name, metadata)
+        try:
+            return self.services["scheduled"].remove_schedule(schedule_name)
+        except Exception as e:
+            self.logger.error(f"Error removing schedule: {e}")
+            return False
     
-    def check_motion(self) -> Optional[Dict[str, Any]]:
-        """Manually trigger a motion check."""
-        motion_service = self.get_service("motion")
-        if not motion_service:
-            self.logger.error("Motion detection service not available")
-            return None
+    def get_snapshots(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent snapshots."""
+        if not self.storage_manager or not self.storage_manager.initialized:
+            return []
         
-        return motion_service.trigger_manual_motion_check()
+        try:
+            return self.storage_manager.list_all_files(limit=limit)
+        except Exception as e:
+            self.logger.error(f"Error getting snapshots: {e}")
+            return []
     
-    def check_objects(self) -> Optional[Dict[str, Any]]:
-        """Manually trigger an object recognition check."""
-        object_service = self.get_service("object_recognition")
-        if not object_service:
-            self.logger.error("Object recognition service not available")
-            return None
-        
-        return object_service.trigger_manual_object_check()
-    
-    def get_status(self) -> Dict[str, Any]:
-        """Get overall status of all services."""
-        service_statuses = {}
+    def _register_service_callbacks(self):
+        """Register callbacks for service events."""
         for service_name, service in self.services.items():
-            try:
-                service_statuses[service_name] = service.get_status()
-            except Exception as e:
-                self.logger.error(f"Error getting status for service '{service_name}': {e}")
-                service_statuses[service_name] = {"error": str(e)}
+            if hasattr(service, 'on_snapshot'):
+                service.on_snapshot = self._on_snapshot_callback
+            if hasattr(service, 'on_motion'):
+                service.on_motion = self._on_motion_callback
+            if hasattr(service, 'on_objects'):
+                service.on_objects = self._on_objects_callback
+            if hasattr(service, 'on_error'):
+                service.on_error = self._on_error_callback
+    
+    def _on_snapshot_callback(self, result: Dict[str, Any]):
+        """Handle snapshot callback."""
+        self.stats["total_snapshots"] += 1
+        self.stats["last_activity"] = datetime.now().isoformat()
+        self.logger.info(f"Snapshot taken: {result.get('filename', 'unknown')}")
+    
+    def _on_motion_callback(self, result: Dict[str, Any]):
+        """Handle motion detection callback."""
+        self.logger.info(f"Motion detected: confidence={result.get('confidence', 0)}")
+    
+    def _on_objects_callback(self, result: Dict[str, Any]):
+        """Handle object detection callback."""
+        objects = result.get('objects', [])
+        self.logger.info(f"Objects detected: {len(objects)} objects")
+    
+    def _on_error_callback(self, error: str, service_name: str):
+        """Handle error callback."""
+        self.stats["service_errors"] += 1
+        self.logger.error(f"Service error in {service_name}: {error}")
+    
+    def execute_schedule(self, schedule_name: str) -> bool:
+        """Execute a specific schedule immediately."""
+        if "scheduled" not in self.services:
+            return False
         
-        # Calculate runtime
-        runtime = None
-        if self.stats["start_time"]:
-            start_dt = datetime.fromisoformat(self.stats["start_time"]) if isinstance(self.stats["start_time"], str) else self.stats["start_time"]
-            runtime = (datetime.now() - start_dt).total_seconds()
-        
-        status = {
-            "camera_ip": self.camera.ip,
-            "camera_online": self.camera.test_connection(),
-            "running": self.running,
-            "initialized": self.initialized,
-            "services_available": list(self.services.keys()),
-            "stats": self.stats,
-            "runtime_seconds": runtime,
-            "service_statuses": service_statuses,
-            "storage_status": self.storage_manager.get_status() if self.storage_manager else None
-        }
-        
-        return status
+        try:
+            return self.services["scheduled"].execute_schedule(schedule_name)
+        except Exception as e:
+            self.logger.error(f"Error executing schedule {schedule_name}: {e}")
+            return False
     
     def get_service_status(self, service_name: str) -> Optional[Dict[str, Any]]:
         """Get status of a specific service."""
-        service = self.get_service(service_name)
+        service = self.services.get(service_name)
         if not service:
             return None
         
         try:
             return service.get_status()
         except Exception as e:
-            self.logger.error(f"Error getting status for service '{service_name}': {e}")
             return {"error": str(e)}
     
-    def add_schedule(self, name: str, config: Dict[str, Any]) -> bool:
-        """Add a new schedule to the scheduled service."""
-        scheduled_service = self.get_service("scheduled")
-        if not scheduled_service:
-            self.logger.error("Scheduled snapshot service not available")
-            return False
-        
-        return scheduled_service.add_schedule(name, config)
-    
-    def remove_schedule(self, name: str) -> bool:
-        """Remove a schedule from the scheduled service."""
-        scheduled_service = self.get_service("scheduled")
-        if not scheduled_service:
-            self.logger.error("Scheduled snapshot service not available")
-            return False
-        
-        return scheduled_service.remove_schedule(name)
-    
-    def get_snapshots(self, limit: int = 20) -> Dict[str, List[Dict[str, Any]]]:
-        """Get snapshots from all storage backends."""
-        if not self.storage_manager:
-            return {}
-        
-        return self.storage_manager.list_all_files(limit=limit)
-    
     def cleanup(self):
-        """Clean up all resources."""
+        """Clean up resources."""
         self.stop()
-        self.services.clear()
+        if self.storage_manager:
+            self.storage_manager.cleanup()
         self.initialized = False
+
