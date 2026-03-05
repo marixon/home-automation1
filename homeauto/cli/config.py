@@ -1,5 +1,6 @@
 import sys
 import argparse
+import datetime
 from typing import Dict
 from homeauto.database.repository import DeviceRepository
 from homeauto.config.manager import ConfigManager
@@ -185,6 +186,54 @@ class ConfigCommand:
         
         return result
 
+    def remove_device(self, device_id: str) -> bool:
+        """Remove a device from the database"""
+        device = self.repository.get(device_id)
+        if not device:
+            print(f"Device {device_id} not found")
+            return False
+        
+        # For cameras, disable services first
+        if device.device_type == "camera":
+            try:
+                from homeauto.devices.camera import CameraDevice
+                from homeauto.services.camera.global_manager import GlobalCameraServiceManager
+                
+                # Disable services if enabled
+                credentials = self.config.get_credentials('camera') or {}
+                camera = CameraDevice(device.ip_address, credentials)
+                
+                # Check if camera has services enabled
+                if hasattr(camera, 'services_enabled') and camera.services_enabled:
+                    print("Disabling camera services...")
+                    camera.disable_services()
+                    
+                    # Also remove from global manager if running
+                    try:
+                        global_manager = GlobalCameraServiceManager()
+                        if device.id in global_manager.service_managers:
+                            global_manager.remove_camera(device.id)
+                            print("Removed camera from global service manager")
+                    except:
+                        pass
+            except Exception as e:
+                print(f"Warning: Could not disable camera services: {e}")
+        
+        # Remove from database
+        print(f"Removing device: {device.name} ({device.id})")
+        
+        # Actually delete the device from database
+        if self.repository.delete(device_id):
+            print(f"Device {device_id} deleted from database")
+            
+            if self.verbose:
+                self.logger.debug(f"Device deleted: {device_id}")
+            
+            return True
+        else:
+            print(f"Failed to delete device {device_id}")
+            return False
+
 
 def main():
     """Main entry point for homeauto-config command"""
@@ -223,6 +272,10 @@ def main():
     control_gate_parser.add_argument("device_id", help="Device ID of the gate")
     control_gate_parser.add_argument("action", choices=["open", "close", "toggle"], help="Action to perform")
 
+    # Remove device
+    remove_parser = subparsers.add_parser("remove", help="Remove a device from the database")
+    remove_parser.add_argument("device_id", help="Device ID to remove")
+
     args = parser.parse_args()
 
     cmd = ConfigCommand(verbose=args.verbose)
@@ -248,6 +301,12 @@ def main():
                 print(f"Command executed successfully: {result.get('message', '')}")
             else:
                 print(f"Command failed: {result.get('message', '')}")
+                sys.exit(1)
+        elif args.command == "remove":
+            if cmd.remove_device(args.device_id):
+                print("Device removed successfully")
+            else:
+                print("Failed to remove device")
                 sys.exit(1)
         else:
             parser.print_help()

@@ -80,6 +80,13 @@ class DeviceRepository:
             )
             return [self._row_to_device(row) for row in cursor.fetchall()]
 
+    def delete(self, device_id: str) -> bool:
+        """Delete a device from the database"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
     def _row_to_device(self, row) -> Device:
         return Device(
             id=row["id"],

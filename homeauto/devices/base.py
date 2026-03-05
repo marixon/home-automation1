@@ -9,6 +9,7 @@ class DeviceCapability(Enum):
     CONTROL = "control"
     CONFIG = "config"
     STREAM = "stream"
+    DISCOVERY = "discovery"
 
 
 class BaseDevice(ABC):

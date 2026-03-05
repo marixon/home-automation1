@@ -8,6 +8,39 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         [x-cloak] { display: none !important; }
+        .camera-preview {
+            background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+            border-radius: 0.5rem;
+            overflow: hidden;
+            position: relative;
+        }
+        .camera-preview img {
+            transition: transform 0.3s ease;
+        }
+        .camera-preview:hover img {
+            transform: scale(1.05);
+        }
+        .status-indicator {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            width: 0.75rem;
+            height: 0.75rem;
+            border-radius: 50%;
+            z-index: 10;
+        }
+        .status-online {
+            background-color: #10b981;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+        }
+        .status-offline {
+            background-color: #ef4444;
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+        }
+        .modal-backdrop {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
     </style>
 </head>
 <body class="bg-gray-50" x-data="dashboard()" x-init="init()">
@@ -101,64 +134,309 @@
              class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
              x-cloak>
             <template x-for="device in filteredDevices" :key="device.id">
-                <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6">
-                    <!-- Device Header -->
-                    <div class="flex items-start justify-between mb-4">
-                        <div class="flex-1">
-                            <div class="flex items-center">
-                                <span class="text-2xl mr-2" x-text="getDeviceIcon(device.device_type)"></span>
-                                <h3 class="text-lg font-semibold text-gray-900" x-text="device.name"></h3>
+                <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition overflow-hidden">
+                    <!-- Camera Preview Section -->
+                    <template x-if="device.device_type === 'camera'">
+                        <div class="camera-preview h-48 relative">
+                            <div :class="device.status === 'online' ? 'status-online' : 'status-offline'" 
+                                 class="status-indicator"></div>
+                            <img :src="'/api/cameras/' + device.id + '/snapshot/image'" 
+                                 :alt="device.name + ' preview'"
+                                 class="w-full h-full object-cover"
+                                 @error="handleImageError($event, device.id)"
+                                 @load="handleImageLoad($event, device.id)">
+                            <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+                                <h3 class="text-white font-semibold text-lg" x-text="device.name"></h3>
+                                <p class="text-gray-300 text-sm" x-text="device.ip_address"></p>
                             </div>
-                            <p class="text-sm text-gray-500 mt-1" x-text="device.device_type"></p>
                         </div>
-                        <span :class="device.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
-                              class="px-2 py-1 text-xs font-medium rounded-full capitalize"
-                              x-text="device.status"></span>
-                    </div>
+                    </template>
 
-                    <!-- Device Info -->
-                    <div class="space-y-2 mb-4">
-                        <div class="flex justify-between text-sm">
-                            <span class="text-gray-500">IP Address:</span>
-                            <span class="font-mono text-gray-900" x-text="device.ip_address"></span>
-                        </div>
-                        <div class="flex justify-between text-sm" x-show="device.manufacturer">
-                            <span class="text-gray-500">Manufacturer:</span>
-                            <span class="text-gray-900" x-text="device.manufacturer || 'Unknown'"></span>
-                        </div>
-                        <div class="flex justify-between text-sm" x-show="device.model">
-                            <span class="text-gray-500">Model:</span>
-                            <span class="text-gray-900" x-text="device.model || 'Unknown'"></span>
-                        </div>
-                    </div>
-
-                    <!-- Actions -->
-                    <div class="flex space-x-2">
-                        <template x-if="device.device_type === 'gate'">
-                            <div class="flex space-x-2 w-full">
-                                <button @click="openGate(device)"
-                                        class="flex-1 bg-green-50 text-green-600 px-4 py-2 rounded hover:bg-green-100 transition text-sm font-medium">
-                                    Open Gate
-                                </button>
-                                <button @click="closeGate(device)"
-                                        class="flex-1 bg-red-50 text-red-600 px-4 py-2 rounded hover:bg-red-100 transition text-sm font-medium">
-                                    Close Gate
-                                </button>
+                    <!-- Device Card Content -->
+                    <div class="p-6">
+                        <!-- Non-camera device header -->
+                        <template x-if="device.device_type !== 'camera'">
+                            <div class="flex items-start justify-between mb-4">
+                                <div class="flex-1">
+                                    <div class="flex items-center">
+                                        <span class="text-2xl mr-2" x-text="getDeviceIcon(device.device_type)"></span>
+                                        <h3 class="text-lg font-semibold text-gray-900" x-text="device.name"></h3>
+                                    </div>
+                                    <p class="text-sm text-gray-500 mt-1" x-text="device.device_type"></p>
+                                </div>
+                                <span :class="device.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                                      class="px-2 py-1 text-xs font-medium rounded-full capitalize"
+                                      x-text="device.status"></span>
                             </div>
                         </template>
-                        <template x-if="device.device_type !== 'gate'">
-                            <div class="flex space-x-2 w-full">
-                                <button @click="viewDevice(device)"
-                                        class="flex-1 bg-blue-50 text-blue-600 px-4 py-2 rounded hover:bg-blue-100 transition text-sm font-medium">
-                                    View Details
-                                </button>
+
+                        <!-- Device Info -->
+                        <div class="space-y-2 mb-4">
+                            <div class="flex justify-between text-sm" x-show="device.device_type !== 'camera'">
+                                <span class="text-gray-500">IP Address:</span>
+                                <span class="font-mono text-gray-900" x-text="device.ip_address"></span>
                             </div>
-                        </template>
+                            <div class="flex justify-between text-sm" x-show="device.manufacturer">
+                                <span class="text-gray-500">Manufacturer:</span>
+                                <span class="text-gray-900" x-text="device.manufacturer || 'Unknown'"></span>
+                            </div>
+                            <div class="flex justify-between text-sm" x-show="device.model">
+                                <span class="text-gray-500">Model:</span>
+                                <span class="text-gray-900" x-text="device.model || 'Unknown'"></span>
+                            </div>
+                            <div class="flex justify-between text-sm" x-show="device.device_type === 'camera'">
+                                <span class="text-gray-500">Last Seen:</span>
+                                <span class="text-gray-900" x-text="formatDate(device.last_seen)"></span>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="flex space-x-2">
+                            <template x-if="device.device_type === 'gate'">
+                                <div class="flex space-x-2 w-full">
+                                    <button @click="openGate(device)"
+                                            class="flex-1 bg-green-50 text-green-600 px-4 py-2 rounded hover:bg-green-100 transition text-sm font-medium">
+                                        Open Gate
+                                    </button>
+                                    <button @click="closeGate(device)"
+                                            class="flex-1 bg-red-50 text-red-600 px-4 py-2 rounded hover:bg-red-100 transition text-sm font-medium">
+                                        Close Gate
+                                    </button>
+                                </div>
+                            </template>
+                            <template x-if="device.device_type !== 'gate'">
+                                <div class="flex space-x-2 w-full">
+                                    <button @click="viewDeviceDetails(device)"
+                                            class="flex-1 bg-blue-50 text-blue-600 px-4 py-2 rounded hover:bg-blue-100 transition text-sm font-medium">
+                                        View Details
+                                    </button>
+                                    <template x-if="device.device_type === 'camera'">
+                                        <button @click="viewCameraStream(device)"
+                                                class="flex-1 bg-purple-50 text-purple-600 px-4 py-2 rounded hover:bg-purple-100 transition text-sm font-medium">
+                                            View Stream
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </div>
             </template>
         </div>
     </main>
+
+    <!-- Device Details Modal -->
+    <div x-show="showModal" class="fixed inset-0 z-50 overflow-y-auto" x-cloak>
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Backdrop -->
+            <div class="fixed inset-0 modal-backdrop transition-opacity" 
+                 @click="showModal = false"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 x-transition:leave="ease-in duration-200"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0"></div>
+
+            <!-- Modal -->
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                 x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                 x-transition:leave="ease-in duration-200"
+                 x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                 x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+                
+                <!-- Modal Header -->
+                <div class="bg-white px-6 py-4 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-gray-900" x-text="selectedDevice ? selectedDevice.name : ''"></h3>
+                        <button @click="showModal = false" class="text-gray-400 hover:text-gray-500">
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Modal Content -->
+                <div class="px-6 py-4" x-show="selectedDevice">
+                    <template x-if="selectedDevice.device_type === 'camera'">
+                        <div>
+                            <!-- Camera Details -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <!-- Left Column: Preview and Basic Info -->
+                                <div>
+                                    <div class="camera-preview h-64 mb-4">
+                                        <img :src="'/api/cameras/' + selectedDevice.id + '/snapshot/image'" 
+                                             :alt="selectedDevice.name + ' preview'"
+                                             class="w-full h-full object-cover"
+                                             @error="handleImageError($event, selectedDevice.id)">
+                                    </div>
+                                    
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <h4 class="font-medium text-gray-900 mb-3">Camera Information</h4>
+                                        <div class="space-y-2">
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">Status:</span>
+                                                <span :class="selectedDevice.status === 'online' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'"
+                                                      x-text="selectedDevice.status"></span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">IP Address:</span>
+                                                <span class="font-mono text-gray-900" x-text="selectedDevice.ip_address"></span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">MAC Address:</span>
+                                                <span class="font-mono text-gray-900" x-text="selectedDevice.mac_address || 'Unknown'"></span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">Manufacturer:</span>
+                                                <span class="text-gray-900" x-text="selectedDevice.manufacturer || 'Unknown'"></span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">Model:</span>
+                                                <span class="text-gray-900" x-text="selectedDevice.model || 'Unknown'"></span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">Last Seen:</span>
+                                                <span class="text-gray-900" x-text="formatDate(selectedDevice.last_seen)"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Right Column: Stream and Actions -->
+                                <div>
+                                    <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-900 mb-3">Live Stream</h4>
+                                        <div class="mb-4">
+                                            <p class="text-sm text-gray-600 mb-2">Stream URL:</p>
+                                            <div class="flex items-center">
+                                                <code class="flex-1 bg-gray-100 text-gray-800 px-3 py-2 rounded text-sm font-mono truncate"
+                                                      x-text="cameraStreamUrl"></code>
+                                                <button @click="copyToClipboard(cameraStreamUrl)"
+                                                        class="ml-2 px-3 py-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200 text-sm">
+                                                    Copy
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-2">
+                                            <a :href="cameraStreamUrl" target="_blank"
+                                               class="block w-full text-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                                                Open Stream in VLC/Player
+                                            </a>
+                                            <button @click="testCameraConnection(selectedDevice)"
+                                                    class="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium">
+                                                Test Connection
+                                            </button>
+                                            <button @click="refreshCameraSnapshot(selectedDevice)"
+                                                    class="w-full px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-medium">
+                                                Refresh Snapshot
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Camera Status -->
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <h4 class="font-medium text-gray-900 mb-3">Camera Status</h4>
+                                        <div class="space-y-3" x-show="cameraStatus">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-600">Online:</span>
+                                                <span :class="cameraStatus.online ? 'text-green-600 font-medium' : 'text-red-600 font-medium'"
+                                                      x-text="cameraStatus.online ? 'Yes' : 'No'"></span>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-600">Streaming:</span>
+                                                <span :class="cameraStatus.status && cameraStatus.status.streaming ? 'text-green-600 font-medium' : 'text-red-600 font-medium'"
+                                                      x-text="cameraStatus.status && cameraStatus.status.streaming ? 'Yes' : 'No'"></span>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-600">Recording:</span>
+                                                <span :class="cameraStatus.status && cameraStatus.status.recording ? 'text-green-600 font-medium' : 'text-red-600 font-medium'"
+                                                      x-text="cameraStatus.status && cameraStatus.status.recording ? 'Yes' : 'No'"></span>
+                                            </div>
+                                            <div class="flex items-center justify-between" x-show="cameraStatus.info">
+                                                <span class="text-gray-600">Firmware:</span>
+                                                <span class="text-gray-900" x-text="cameraStatus.info.firmware || 'Unknown'"></span>
+                                            </div>
+                                        </div>
+                                        <div x-show="!cameraStatus" class="text-center py-4">
+                                            <p class="text-gray-500">Loading camera status...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="selectedDevice.device_type !== 'camera'">
+                        <div>
+                            <!-- Generic Device Details -->
+                            <div class="bg-gray-50 rounded-lg p-6">
+                                <h4 class="font-medium text-gray-900 mb-4">Device Information</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">Device Type:</span>
+                                            <span class="text-gray-900 capitalize" x-text="selectedDevice.device_type"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">Status:</span>
+                                            <span :class="selectedDevice.status === 'online' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'"
+                                                  x-text="selectedDevice.status"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">IP Address:</span>
+                                            <span class="font-mono text-gray-900" x-text="selectedDevice.ip_address"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">MAC Address:</span>
+                                            <span class="font-mono text-gray-900" x-text="selectedDevice.mac_address || 'Unknown'"></span>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">Manufacturer:</span>
+                                            <span class="text-gray-900" x-text="selectedDevice.manufacturer || 'Unknown'"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">Model:</span>
+                                            <span class="text-gray-900" x-text="selectedDevice.model || 'Unknown'"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">Confidence Score:</span>
+                                            <span class="text-gray-900" x-text="selectedDevice.confidence_score"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">Last Seen:</span>
+                                            <span class="text-gray-900" x-text="formatDate(selectedDevice.last_seen)"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="bg-gray-50 px-6 py-4 border-t border-gray-200">
+                    <div class="flex justify-end space-x-3">
+                        <button @click="showModal = false"
+                                class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition">
+                            Close
+                        </button>
+                        <template x-if="selectedDevice && selectedDevice.device_type === 'camera'">
+                            <button @click="viewCameraStream(selectedDevice)"
+                                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition">
+                                Open Stream
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script>
         function dashboard() {
@@ -168,7 +446,10 @@
                 loading: true,
                 showModal: false,
                 selectedDevice: null,
+                cameraStatus: null,
+                cameraStreamUrl: '',
                 connected: true,
+                imageCache: {},
 
                 get filteredDevices() {
                     if (this.filterType === 'all') {
@@ -212,8 +493,90 @@
                     return icons[type] || 'DEV';
                 },
 
-                viewDevice(device) {
-                    this.showDeviceModal(device);
+                async viewDeviceDetails(device) {
+                    this.selectedDevice = device;
+                    this.showModal = true;
+                    
+                    // Load camera-specific data if it's a camera
+                    if (device.device_type === 'camera') {
+                        await this.loadCameraDetails(device);
+                    }
+                },
+
+                async loadCameraDetails(device) {
+                    try {
+                        // Load camera status
+                        const statusResponse = await fetch(`/api/cameras/${device.id}/status`);
+                        this.cameraStatus = await statusResponse.json();
+                        
+                        // Set stream URL
+                        if (this.cameraStatus.stream_url) {
+                            this.cameraStreamUrl = this.cameraStatus.stream_url;
+                        } else {
+                            // Generate default RTSP URL
+                            this.cameraStreamUrl = `rtsp://${device.ip_address}:554/stream1`;
+                        }
+                    } catch (error) {
+                        console.error('Failed to load camera details:', error);
+                        this.cameraStatus = null;
+                        this.cameraStreamUrl = `rtsp://${device.ip_address}:554/stream1`;
+                    }
+                },
+
+                async testCameraConnection(device) {
+                    try {
+                        const response = await fetch(`/api/devices/${device.id}/status`);
+                        const status = await response.json();
+                        
+                        if (status.online) {
+                            alert(`Camera ${device.name} is online and reachable.`);
+                        } else {
+                            alert(`Camera ${device.name} is offline or unreachable.`);
+                        }
+                    } catch (error) {
+                        alert(`Error testing camera connection: ${error.message}`);
+                    }
+                },
+
+                async refreshCameraSnapshot(device) {
+                    // Force refresh by adding timestamp to URL
+                    const img = document.querySelector(`img[alt="${device.name} preview"]`);
+                    if (img) {
+                        img.src = `/api/cameras/${device.id}/snapshot/image?t=${Date.now()}`;
+                    }
+                },
+
+                viewCameraStream(device) {
+                    if (this.cameraStreamUrl) {
+                        window.open(this.cameraStreamUrl, '_blank');
+                    } else {
+                        alert('Stream URL not available for this camera.');
+                    }
+                },
+
+                copyToClipboard(text) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        alert('Stream URL copied to clipboard!');
+                    }).catch(err => {
+                        console.error('Failed to copy:', err);
+                        alert('Failed to copy to clipboard.');
+                    });
+                },
+
+                formatDate(dateString) {
+                    if (!dateString) return 'Unknown';
+                    const date = new Date(dateString);
+                    return date.toLocaleString();
+                },
+
+                handleImageError(event, deviceId) {
+                    // Replace broken image with placeholder
+                    event.target.src = `/api/cameras/${deviceId}/snapshot/image?t=${Date.now()}`;
+                },
+
+                handleImageLoad(event, deviceId) {
+                    // Cache the successful image load
+                    this.imageCache[deviceId] = event.target.src;
                 },
 
                 async openGate(device) {
@@ -281,11 +644,6 @@
                     } catch (error) {
                         console.error('Error refreshing device status:', error);
                     }
-                },
-
-                showDeviceModal(device) {
-                    this.selectedDevice = device;
-                    this.showModal = true;
                 }
             }
         }

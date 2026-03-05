@@ -49,52 +49,51 @@ class ScanCommand:
         )
         self.identifier = DeviceIdentifier()
         self.repository = DeviceRepository()
-        self.use_mock = self.config.get("testing.use_mock_devices", False)
+        self.use_mock = self.config.get_setting("testing.use_mock_devices", False)
 
     def execute(self) -> Dict:
-        """Execute device scan"""
-        self.logger.info("Scanning network for devices...")
-        if self.verbose:
-            self.logger.debug(f"Using subnet: {self.scanner.subnet}")
-            self.logger.debug(f"Mock mode: {self.use_mock}")
-
+        """Execute the scan command"""
+        self.logger.info("Starting device scan...")
+        
         if self.use_mock:
-            return self._scan_mock_devices()
+            print("Using mock devices for testing...")
+            result = self._scan_mock_devices()
         else:
-            return self._scan_real_devices()
+            print("Scanning real network devices...")
+            result = self._scan_real_devices()
+        
+        # List all devices
+        devices = self.repository.get_all()
+        if devices:
+            print("\n" + "=" * 80)
+            print("All Devices in Database:")
+            print("=" * 80)
+            
+            device_list = []
+            for device in devices:
+                device_list.append({
+                    "id": device.id,
+                    "type": device.device_type,
+                    "ip": device.ip_address,
+                    "name": device.name,
+                    "status": device.status.value
+                })
+            
+            print(format_device_table(device_list))
+        
+        self.logger.info("Device scan completed")
+        return result
 
     def _scan_mock_devices(self) -> Dict:
-        """Scan using mock devices"""
-        print("Using mock devices for testing")
-
-        generator = MockDeviceGenerator()
-        count = self.config.get("testing.mock_device_count", 5)
-        mock_devices = generator.generate(count=count)
-
-        if self.verbose:
-            self.logger.debug(f"Generating {count} mock devices")
-
+        """Scan mock devices for testing"""
+        mock_generator = MockDeviceGenerator(
+            count=self.config.get_setting("testing.mock_device_count", 5)
+        )
+        
+        mock_devices = mock_generator.generate_devices()
         discovered = 0
-
-        for mock_device in mock_devices:
-            if not mock_device.is_online():
-                continue
-
-            info = mock_device.get_info()
-
-            # Create device object
-            device = Device(
-                id=f"{info['type']}-{info['ip'].split('.')[-1]}",
-                device_type=info["type"],
-                ip_address=info["ip"],
-                mac_address=info["mac"],
-                name=f"{info['type'].title()} {info['ip'].split('.')[-1]}",
-                status=DeviceStatus.ONLINE,
-                manufacturer=info["manufacturer"],
-                model=info["model"],
-                confidence_score=0.9,
-            )
-
+        
+        for device in mock_devices:
             self.repository.save(device)
             discovered += 1
             print(f"  Found: {device.name} ({device.ip_address})")
@@ -166,6 +165,10 @@ class ScanCommand:
             discovered += 1
             print(f"    ✓ {device_type} at {ip}")
 
+            # Offer camera services if device is a camera
+            if device_type == "camera":
+                self._offer_camera_services(device)
+
             if self.verbose:
                 self.logger.debug(f"Device saved to database: {device.id}")
 
@@ -174,6 +177,41 @@ class ScanCommand:
             self.logger.debug(f"Total active hosts scanned: {len(active_hosts)}")
 
         return {"discovered": discovered}
+
+    def _offer_camera_services(self, camera_device):
+        """Offer camera services for a newly discovered camera"""
+        try:
+            print(f"\n🎥 Camera detected: {camera_device.name} ({camera_device.ip_address})")
+            print("Camera services available:")
+            print("  1. On-demand snapshots")
+            print("  2. Scheduled snapshots")
+            print("  3. Motion detection")
+            print("  4. Object recognition")
+            print("  5. Multiple storage options (local, FTP, Google Drive)")
+            
+            response = input("\nEnable camera services for this camera? (y/N): ").strip().lower()
+            
+            if response == 'y' or response == 'yes':
+                print("Enabling camera services...")
+                
+                # Create CameraDevice instance
+                from homeauto.devices.camera import CameraDevice
+                credentials = self.config.get_credentials('camera') or {}
+                camera = CameraDevice(camera_device.ip_address, credentials)
+                
+                # Enable services
+                if camera.enable_services():
+                    print("✅ Camera services enabled successfully!")
+                    print("   - Access camera services via web interface: http://localhost:8000/static/camera_services.html")
+                    print("   - Use CLI: python -m homeauto.services.camera.global_manager start")
+                else:
+                    print("⚠️  Could not enable camera services. Check configuration.")
+            else:
+                print("Camera services not enabled. You can enable them later via the web interface.")
+                
+        except Exception as e:
+            self.logger.error(f"Error offering camera services: {e}")
+            print(f"Error: {e}")
 
 
 def main():
@@ -197,30 +235,20 @@ def main():
             cmd.scanner.subnet = args.subnet
             
         result = cmd.execute()
-
-        # Show discovered devices
-        print("\nDiscovered devices:")
-        devices = cmd.repository.get_all()
-        device_dicts = [
-            {
-                "id": d.id,
-                "type": d.device_type,
-                "ip": d.ip_address,
-                "name": d.name,
-                "status": d.status.value,
-            }
-            for d in devices
-        ]
-        print(format_device_table(device_dicts))
-
-        return 0
+        
+        print(f"\nScan completed. Discovered {result['discovered']} devices.")
+        sys.exit(0)
+        
     except KeyboardInterrupt:
-        print("\n\nScan interrupted by user")
-        return 1
+        print("\nScan interrupted by user.")
+        sys.exit(1)
     except Exception as e:
-        print(f"\nError: {e}", file=sys.stderr)
-        return 1
+        print(f"Error during scan: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
